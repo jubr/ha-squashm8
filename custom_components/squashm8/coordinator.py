@@ -16,7 +16,7 @@ from homeassistant.core import HomeAssistant
 from .const import (
     CONF_API_BASE_URL,
     CONF_CHANGE_ID,
-    CONF_GROUP_TARGET_MAP,
+    CONF_TARGET_MAP,
     CONF_NOTIFY_SERVICE,
     CONF_REQUEST_TIMEOUT,
     CONF_VERIFY_SSL,
@@ -172,7 +172,7 @@ class SquashM8Client:
             endpoint=str(merged[CONF_API_BASE_URL]),
             change_id=str(merged[CONF_CHANGE_ID]),
             notify_service=notify_service,
-            group_targets=_normalize_group_targets(merged.get(CONF_GROUP_TARGET_MAP)),
+            group_targets=_normalize_group_targets(merged.get(CONF_TARGET_MAP)),
             request_timeout=float(merged.get(CONF_REQUEST_TIMEOUT, 10)),
             verify_ssl=bool(merged.get(CONF_VERIFY_SSL, True)),
         )
