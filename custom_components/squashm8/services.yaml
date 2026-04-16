@@ -1,0 +1,38 @@
+run:
+  name: Run SquashM8 sync
+  description: Fetch SquashM8 messages and forward updates to WhatsApp targets.
+  fields:
+    peek:
+      name: Peek
+      description: Request preview/no-post mode from SquashM8 endpoint.
+      required: false
+      default: false
+      selector:
+        boolean:
+    delta:
+      name: Delta only
+      description: Only send messages when endpoint reports updates.
+      required: false
+      default: true
+      selector:
+        boolean:
+    override_target:
+      name: Override target group
+      description: Forward all generated messages to this logical target name.
+      required: false
+      selector:
+        text:
+    entry_id:
+      name: Config entry ID
+      description: Optional when only one SquashM8 entry exists.
+      required: false
+      selector:
+        text:
+    ts:
+      name: Epoch timestamp
+      description: Optional override for SquashM8 ts parameter (defaults to now).
+      required: false
+      selector:
+        number:
+          min: 0
+          mode: box

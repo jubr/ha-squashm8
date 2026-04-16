@@ -1,0 +1,51 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Set up SquashM8",
+        "description": "Configure SquashM8 polling and WhatsApp delivery.",
+        "data": {
+          "api_base_url": "SquashM8 API URL",
+          "change_id": "Change ID",
+          "notify_service": "Notify service",
+          "request_timeout": "Request timeout (seconds)",
+          "verify_ssl": "Verify SSL certificates",
+          "default_peek": "Default peek mode",
+          "default_delta": "Default delta mode",
+          "default_override_target": "Default override target",
+          "target_map": "Group target mapping (JSON object)"
+        }
+      }
+    },
+    "error": {
+      "invalid_notify_service": "Notify service must be in notify.<service> format",
+      "invalid_target_map": "Target map must be a JSON object (example: {\"Group\": \"chat_id\"})"
+    },
+    "abort": {
+      "single_instance_allowed": "Only one SquashM8 config entry is supported"
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "SquashM8 options",
+        "description": "Tune defaults for scheduled and manual runs.",
+        "data": {
+          "api_base_url": "SquashM8 API URL",
+          "change_id": "Change ID",
+          "notify_service": "Notify service",
+          "request_timeout": "Request timeout (seconds)",
+          "verify_ssl": "Verify SSL certificates",
+          "default_peek": "Default peek mode",
+          "default_delta": "Default delta mode",
+          "default_override_target": "Default override target",
+          "target_map": "Group target mapping (JSON object)"
+        }
+      }
+    },
+    "error": {
+      "invalid_notify_service": "Notify service must be in notify.<service> format",
+      "invalid_target_map": "Target map must be a JSON object (example: {\"Group\": \"chat_id\"})"
+    }
+  }
+}

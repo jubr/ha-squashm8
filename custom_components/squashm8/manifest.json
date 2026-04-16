@@ -1,0 +1,18 @@
+{
+  "domain": "squashm8",
+  "name": "SquashM8",
+  "codeowners": [
+    "@jubr"
+  ],
+  "config_flow": true,
+  "dependencies": [],
+  "documentation": "https://github.com/jubr/ha-squashm8",
+  "integration_type": "service",
+  "iot_class": "cloud_polling",
+  "issue_tracker": "https://github.com/jubr/ha-squashm8/issues",
+  "loggers": [
+    "custom_components.squashm8"
+  ],
+  "requirements": [],
+  "version": "0.1.0"
+}
