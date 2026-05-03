@@ -18,6 +18,10 @@ from .const import (
     CONF_DEFAULT_DELTA,
     CONF_DEFAULT_OVERRIDE_TARGET,
     CONF_DEFAULT_PEEK,
+    CONF_DELETE_FOR_EVERYONE,
+    CONF_DELETE_OLDER_MESSAGES,
+    CONF_DELETE_ONLY_IF_NO_INTERVENING,
+    CONF_EDIT_WINDOW_MINUTES,
     CONF_NOTIFY_SERVICE,
     CONF_REQUEST_TIMEOUT,
     CONF_TARGET_MAP,
@@ -25,6 +29,10 @@ from .const import (
     DEFAULT_API_BASE_URL,
     DEFAULT_CHANGE_ID,
     DEFAULT_DELTA,
+    DEFAULT_DELETE_FOR_EVERYONE,
+    DEFAULT_DELETE_OLDER_MESSAGES,
+    DEFAULT_DELETE_ONLY_IF_NO_INTERVENING,
+    DEFAULT_EDIT_WINDOW_MINUTES,
     DEFAULT_NOTIFY_SERVICE,
     DEFAULT_OVERRIDE_TARGET,
     DEFAULT_PEEK,
@@ -77,6 +85,27 @@ def _base_schema(defaults: Mapping[str, Any] | None = None) -> vol.Schema:
                 CONF_TARGET_MAP,
                 default=defaults.get(CONF_TARGET_MAP, DEFAULT_TARGET_MAP),
             ): cv.string,
+            vol.Required(
+                CONF_EDIT_WINDOW_MINUTES,
+                default=defaults.get(CONF_EDIT_WINDOW_MINUTES, DEFAULT_EDIT_WINDOW_MINUTES),
+            ): vol.All(vol.Coerce(int), vol.Range(min=1, max=180)),
+            vol.Required(
+                CONF_DELETE_OLDER_MESSAGES,
+                default=defaults.get(
+                    CONF_DELETE_OLDER_MESSAGES, DEFAULT_DELETE_OLDER_MESSAGES
+                ),
+            ): bool,
+            vol.Required(
+                CONF_DELETE_FOR_EVERYONE,
+                default=defaults.get(CONF_DELETE_FOR_EVERYONE, DEFAULT_DELETE_FOR_EVERYONE),
+            ): bool,
+            vol.Required(
+                CONF_DELETE_ONLY_IF_NO_INTERVENING,
+                default=defaults.get(
+                    CONF_DELETE_ONLY_IF_NO_INTERVENING,
+                    DEFAULT_DELETE_ONLY_IF_NO_INTERVENING,
+                ),
+            ): bool,
         }
     )
 
@@ -95,7 +124,7 @@ class SquashM8ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         if user_input is not None:
             await self.async_set_unique_id(DOMAIN)
             self._abort_if_unique_id_configured()
-            title = user_input[CONF_CHANGE_ID]
+            title = str(user_input[CONF_CHANGE_ID])
             return self.async_create_entry(title=title, data=user_input)
 
         return self.async_show_form(

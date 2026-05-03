@@ -56,6 +56,7 @@ Optional fields:
 - `delta` (bool)
 - `override_target` (string)
 - `ts` (int): optional epoch override (for replay/testing)
+- `dry_run` (bool): simulate send/edit/delete without mutating WhatsApp messages
 
 Service returns response data including:
 
@@ -103,53 +104,34 @@ Default group target map is preloaded from your existing HA setup.
 
 ---
 
-## Roadmap: message edit/delete strategy (future)
+## No-feature-flag message lifecycle behavior
 
-You asked for functionality to avoid noisy short-interval updates by editing same-day messages and optionally delete-for-everyone old bot messages when safe.
+This integration now directly uses the latest Whatsapper notify contract from
+`docs/homeassistant-integration.md` and applies edit/delete lifecycle management
+without feature flags.
 
-### Proposed integration-level feature flags
+### Required Whatsapper capabilities (already documented in latest PR)
 
-- `update_mode`: `send_new | try_edit_recent`
-- `edit_window_minutes` (default e.g. 20)
-- `same_day_only` (default true)
-- `coalesce_when_short_interval` (default true)
-- `delete_old_bot_messages` (default false)
-- `delete_only_if_no_intervening_nonbot_messages` (default true)
+- `notify.whatsapper` / `notify.whatsappur` supports:
+  - `data.edit_message_id`
+  - `data.delete_message_id`
+  - `data.delete_for_everyone`
+- Add-on HTTP endpoints:
+  - `POST /api/v1/messages/edit`
+  - `POST /api/v1/messages/delete`
+- The integration tracks per-target/day bot message history in HA storage and
+  relies on Whatsapper notify edit/delete routing for mutation.
 
-### Needed Whatsapper API additions (likely in `jubr/whatsapper`)
+### Automatic behavior for each outgoing day update
 
-Current notify API is send-only. For robust edit/delete semantics we likely need:
-
-1. **List recent chat messages** endpoint, including:
-   - message id
-   - sender/self flag
-   - timestamp
-   - text snippet
-2. **Edit message** endpoint:
-   - target chat id
-   - message id
-   - new text
-3. **Delete for everyone** endpoint:
-   - target chat id
-   - message id
-   - mode (for_everyone)
-4. Consistent error codes for:
-   - edit window expired
-   - message not owned by bot account
-   - cannot delete-for-everyone
-
-### Safe algorithm outline
-
-For each outgoing day-group message:
-
-1. Discover last bot-owned message for same `dayColKey` within `edit_window`.
-2. If found and policy allows:
-   - edit existing message instead of sending new
-3. If sending new and delete policy enabled:
-   - identify older bot messages for same day
-   - ensure no non-bot messages between old and new
-   - then delete-for-everyone old ones
-4. Fallback: send as new message on any API limitation.
-
-This can be added without breaking the current `squashm8.run` service contract by introducing optional strategy keys.
+1. Fetch recent messages for the target chat and parse entries.
+2. Find recent bot-owned message for same logical day (`dayColKey`/`day`) in the
+   configured edit window.
+3. If found, edit that message using `data.edit_message_id` instead of sending a
+   new message.
+4. If no editable candidate is found, send a new message and record its id.
+5. Attempt cleanup of stale bot messages for the same day:
+   - only when no non-bot messages are between stale message and current message
+   - delete uses `data.delete_message_id` + `data.delete_for_everyone: true`
+6. Any edit/delete failure falls back safely to keep notification delivery.
 
