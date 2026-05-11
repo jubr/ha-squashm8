@@ -1,7 +1,13 @@
 run:
   name: Run SquashM8 sync
-  description: Fetch SquashM8 messages and forward updates to WhatsApp targets.
+  description: Fetch SquashM8 messages, then send/edit/delete via Whatsapper notify API.
   fields:
+    entry_id:
+      name: Config entry ID
+      description: Select a specific SquashM8 config entry when multiple exist.
+      required: false
+      selector:
+        text:
     peek:
       name: Peek
       description: Request preview/no-post mode from SquashM8 endpoint.
@@ -22,17 +28,18 @@ run:
       required: false
       selector:
         text:
-    entry_id:
-      name: Config entry ID
-      description: Optional when only one SquashM8 entry exists.
-      required: false
-      selector:
-        text:
     ts:
-      name: Epoch timestamp
-      description: Optional override for SquashM8 ts parameter (defaults to now).
+      name: Timestamp override
+      description: Optional epoch timestamp override for replay/testing.
       required: false
       selector:
         number:
           min: 0
           mode: box
+    dry_run:
+      name: Dry run
+      description: Simulate send/edit/delete behavior without mutating external services.
+      required: false
+      default: false
+      selector:
+        boolean:

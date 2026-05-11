@@ -12,6 +12,7 @@ from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import config_validation as cv
 
 from .const import (
+    ATTR_DRY_RUN,
     ATTR_DELTA,
     ATTR_ENTRY_ID,
     ATTR_OVERRIDE_TARGET,
@@ -33,6 +34,7 @@ SERVICE_RUN_SCHEMA = vol.Schema(
         vol.Optional(ATTR_DELTA): cv.boolean,
         vol.Optional(ATTR_OVERRIDE_TARGET): cv.string,
         vol.Optional(ATTR_TS): vol.All(vol.Coerce(int), vol.Range(min=0)),
+        vol.Optional(ATTR_DRY_RUN): cv.boolean,
     }
 )
 
@@ -52,19 +54,22 @@ async def async_register_services(hass: HomeAssistant) -> None:
             ATTR_OVERRIDE_TARGET, options.get(CONF_DEFAULT_OVERRIDE_TARGET)
         )
         ts = call.data.get(ATTR_TS)
+        dry_run = bool(call.data.get(ATTR_DRY_RUN, False))
 
         LOGGER.info(
-            "Running SquashM8 service: peek=%s delta=%s override_target=%s entry_id=%s",
+            "Running SquashM8 service: peek=%s delta=%s override_target=%s entry_id=%s dry_run=%s",
             peek,
             delta,
             override_target,
             entry.entry_id,
+            dry_run,
         )
         result = await client.run(
             peek=bool(peek),
             delta=bool(delta),
             override_target=str(override_target) if override_target else None,
             ts=int(ts) if ts is not None else None,
+            dry_run=dry_run,
         )
         return {
             "status": result.status,
@@ -73,6 +78,9 @@ async def async_register_services(hass: HomeAssistant) -> None:
             "num_updates": result.num_updates,
             "endpoint_url": result.endpoint_url,
             "skipped_reasons": result.skipped_reasons,
+            "edited_messages": result.edited_messages,
+            "deleted_messages": result.deleted_messages,
+            "dry_run": dry_run,
         }
 
     if hass.services.has_service(DOMAIN, SERVICE_RUN):
