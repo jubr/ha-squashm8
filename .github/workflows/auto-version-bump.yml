@@ -1,0 +1,57 @@
+name: Auto Version Bump
+
+on:
+  pull_request:
+    branches:
+      - main
+    types:
+      - closed
+
+permissions:
+  contents: write
+  pull-requests: read
+
+jobs:
+  bump-version:
+    if: github.event.pull_request.merged == true
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: Determine bump type from PR title
+        id: bump-type
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+        run: |
+          bump_type="patch"
+          if [[ "$PR_TITLE" == *"MINOR"* ]]; then
+            bump_type="minor"
+          fi
+          echo "bump_type=$bump_type" >> "$GITHUB_OUTPUT"
+
+      - name: Bump integration version
+        id: bump-version
+        run: |
+          new_version=$(python3 .github/scripts/bump_manifest_version.py \
+            --manifest custom_components/squashm8/manifest.json \
+            --bump "${{ steps.bump-type.outputs.bump_type }}" \
+            --start-version "0.0.1")
+          echo "new_version=$new_version" >> "$GITHUB_OUTPUT"
+
+      - name: Commit and push version bump
+        run: |
+          if git diff --quiet; then
+            echo "No version changes detected."
+            exit 0
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git add custom_components/squashm8/manifest.json
+          git commit -m "chore: bump version to ${{ steps.bump-version.outputs.new_version }} [skip ci]"
+          git push origin HEAD:main
