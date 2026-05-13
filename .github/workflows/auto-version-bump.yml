@@ -44,9 +44,11 @@ jobs:
           echo "new_version=$new_version" >> "$GITHUB_OUTPUT"
 
       - name: Commit, tag, and push version bump
+        id: commit-tag
         run: |
           if git diff --quiet; then
             echo "No version changes detected."
+            echo "tag_name=" >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
@@ -56,6 +58,7 @@ jobs:
           git add custom_components/squashm8/manifest.json
           git commit -m "chore: bump version to ${{ steps.bump-version.outputs.new_version }} [skip ci]"
           tag_name="v${{ steps.bump-version.outputs.new_version }}"
+          echo "tag_name=$tag_name" >> "$GITHUB_OUTPUT"
 
           if git ls-remote --exit-code --tags origin "refs/tags/${tag_name}" >/dev/null 2>&1; then
             echo "Tag ${tag_name} already exists on origin."
@@ -64,3 +67,18 @@ jobs:
 
           git tag -a "${tag_name}" -m "Release ${tag_name}"
           git push origin HEAD:main "${tag_name}"
+
+      - name: Publish GitHub release
+        if: steps.commit-tag.outputs.tag_name != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG_NAME: ${{ steps.commit-tag.outputs.tag_name }}
+        run: |
+          if gh release view "$TAG_NAME" >/dev/null 2>&1; then
+            echo "Release $TAG_NAME already exists."
+            exit 0
+          fi
+
+          gh release create "$TAG_NAME" \
+            --title "$TAG_NAME" \
+            --generate-notes
