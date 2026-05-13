@@ -91,7 +91,7 @@ async def async_register_services(hass: HomeAssistant) -> None:
         SERVICE_RUN,
         _async_handle_run,
         schema=SERVICE_RUN_SCHEMA,
-        supports_response=SupportsResponse.ONLY,
+        supports_response=SupportsResponse.OPTIONAL,
     )
 
 
