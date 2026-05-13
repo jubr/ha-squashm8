@@ -12,6 +12,7 @@ from typing import Any
 import aiohttp
 from homeassistant.components.notify import DOMAIN as NOTIFY_DOMAIN
 from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import HomeAssistantError
 
 from .const import (
     CONF_API_BASE_URL,
@@ -309,13 +310,27 @@ class SquashM8Client:
     async def _notify_send_message(self, *, target: str, message: str) -> str | None:
         """Send message and return resulting message id when available."""
         domain, service = self._notify_service.split(".", 1)
-        response = await self._hass.services.async_call(
-            domain,
-            service,
-            {"target": target, "message": message},
-            blocking=True,
-            return_response=True,
-        )
+        service_data = {"target": target, "message": message}
+        try:
+            response = await self._hass.services.async_call(
+                domain,
+                service,
+                service_data,
+                blocking=True,
+                return_response=True,
+            )
+        except HomeAssistantError as err:
+            # Some notify services do not expose responses. In that case, send the
+            # message without requesting a response and continue gracefully.
+            if "return_response=True" not in str(err):
+                raise
+            await self._hass.services.async_call(
+                domain,
+                service,
+                service_data,
+                blocking=True,
+            )
+            return None
         return _extract_message_id_from_response(response)
 
     async def _notify_edit_message(self, *, message_id: str, message: str) -> None:
