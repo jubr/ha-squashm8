@@ -195,6 +195,27 @@ class SquashM8Client:
                     continue
 
                 day_key = self._day_key(item)
+                if (
+                    delta
+                    and day_key
+                    and not self._has_day_changed(
+                        target=target,
+                        day_key=day_key,
+                        new_body=str(sentence),
+                    )
+                ):
+                    skipped.append(f"{group_name}:{day_key}:unchanged_delta_skip")
+                    _LOGGER.debug(
+                        (
+                            "Delta skip for %s item #%s: unchanged day_key=%s "
+                            "target=%s"
+                        ),
+                        group_name,
+                        item_index,
+                        day_key,
+                        target,
+                    )
+                    continue
                 _LOGGER.debug(
                     "Upserting %s item #%s day_key=%s sentence_preview=%r",
                     group_name,
@@ -636,6 +657,13 @@ class SquashM8Client:
             },
             blocking=True,
         )
+
+    def _has_day_changed(self, *, target: str, day_key: str, new_body: str) -> bool:
+        """Return True when per-day payload body changed since last successful observation."""
+        previous_body = self._state_store.get_body(target=target, day_key=day_key)
+        if not previous_body:
+            return True
+        return previous_body.strip() != new_body.strip()
 
     def _find_edit_candidate(
         self,
