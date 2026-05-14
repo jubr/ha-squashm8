@@ -295,6 +295,7 @@ class SquashM8Client:
     ) -> tuple[bool, str | None, str]:
         """Edit an existing recent same-day bot message or send new."""
         day_key = self._day_key(item)
+        edit_candidate_msg_id: str | None = None
         if day_key:
             state_msg_id = self._state_store.get_message_id(target=target, day_key=day_key)
             state_ts = self._state_store.get_timestamp(target=target, day_key=day_key)
@@ -303,45 +304,69 @@ class SquashM8Client:
                 and state_ts is not None
                 and now_ts - state_ts <= self._edit_window_minutes * 60
             ):
-                try:
+                edit_candidate_msg_id = state_msg_id
+                _LOGGER.debug(
+                    "Using state-store edit candidate target=%s day_key=%s msg_id=%s",
+                    target,
+                    day_key,
+                    edit_candidate_msg_id,
+                )
+
+            # Fallback path: recover a candidate from channel history when the notify
+            # send response did not include a message id in earlier runs.
+            if not edit_candidate_msg_id:
+                edit_candidate_msg_id = await self._find_edit_candidate_from_recent_messages(
+                    target=target,
+                    day_key=day_key,
+                    now_ts=now_ts,
+                )
+                if edit_candidate_msg_id:
                     _LOGGER.debug(
-                        (
-                            "Attempting message edit using state store: "
-                            "target=%s day_key=%s msg_id=%s"
-                        ),
+                        "Using history-derived edit candidate target=%s day_key=%s msg_id=%s",
                         target,
                         day_key,
-                        state_msg_id,
+                        edit_candidate_msg_id,
                     )
-                    if not dry_run:
-                        await self._notify_edit_message(
-                            message_id=state_msg_id,
-                            message=sentence,
-                        )
-                    _LOGGER.debug(
-                        "Edit succeeded for target=%s day_key=%s msg_id=%s",
-                        target,
-                        day_key,
-                        state_msg_id,
+
+        if edit_candidate_msg_id:
+            try:
+                if not dry_run:
+                    await self._notify_edit_message(
+                        message_id=edit_candidate_msg_id,
+                        message=sentence,
                     )
-                    return True, state_msg_id, "edit"
-                except Exception as err:  # noqa: BLE001
-                    _LOGGER.debug(
-                        "Edit fallback to send for target=%s day_key=%s msg_id=%s: %s",
-                        target,
-                        day_key,
-                        state_msg_id,
-                        err,
-                    )
+                _LOGGER.debug(
+                    "Edit succeeded for target=%s day_key=%s msg_id=%s",
+                    target,
+                    day_key,
+                    edit_candidate_msg_id,
+                )
+                return True, edit_candidate_msg_id, "edit"
+            except Exception as err:  # noqa: BLE001
+                _LOGGER.debug(
+                    "Edit fallback to send for target=%s day_key=%s msg_id=%s: %s",
+                    target,
+                    day_key,
+                    edit_candidate_msg_id,
+                    err,
+                )
 
         if dry_run:
             _LOGGER.debug("Dry run active; skipping send for target=%s", target)
             return True, None, "send"
         message_id = await self._notify_send_message(target=target, message=sentence)
+        if not message_id:
+            message_id = await self._find_recent_message_id_for_body(
+                target=target,
+                body=sentence,
+                now_ts=now_ts,
+            )
         _LOGGER.debug(
             "Send attempted for target=%s returned message_id=%s", target, message_id
         )
-        return bool(message_id), message_id, "send"
+        # Sending succeeded if no exception was raised, even when provider response
+        # does not include an explicit message id.
+        return True, message_id, "send"
 
     async def _can_delete_prev_safely(
         self,
@@ -462,6 +487,98 @@ class SquashM8Client:
             },
             blocking=True,
         )
+
+    async def _find_edit_candidate_from_recent_messages(
+        self,
+        *,
+        target: str,
+        day_key: str,
+        now_ts: int,
+    ) -> str | None:
+        """Find a recent same-day bot message id by reading channel history."""
+        recent_messages = await self._list_recent_messages(
+            target=target,
+            limit=50,
+            from_me=True,
+        )
+        candidate = self._find_edit_candidate(
+            recent_messages=recent_messages,
+            day_key=day_key,
+            now_ts=now_ts,
+        )
+        if not candidate:
+            return None
+        msg_id = str(candidate.get("id") or "")
+        return msg_id or None
+
+    async def _find_recent_message_id_for_body(
+        self,
+        *,
+        target: str,
+        body: str,
+        now_ts: int,
+    ) -> str | None:
+        """Recover newly sent message id via history when notify returns none."""
+        recent_messages = await self._list_recent_messages(
+            target=target,
+            limit=30,
+            from_me=True,
+        )
+        normalized_body = body.strip()
+        for msg in reversed(recent_messages):
+            if not _is_from_me(msg):
+                continue
+            msg_id = str(msg.get("id") or "")
+            if not msg_id:
+                continue
+            msg_body = str(msg.get("body") or "").strip()
+            if msg_body != normalized_body:
+                continue
+            msg_ts = _message_timestamp(msg)
+            if msg_ts is not None and abs(now_ts - msg_ts) > 300:
+                continue
+            return msg_id
+        return None
+
+    async def _list_recent_messages(
+        self,
+        *,
+        target: str,
+        limit: int,
+        from_me: bool | None = None,
+    ) -> list[dict[str, Any]]:
+        """Read channel history through whatsappur/whatsapper list service."""
+        if "." not in self._notify_service:
+            return []
+        _, notify_service_name = self._notify_service.split(".", 1)
+        channel_domain = notify_service_name
+        if not self._hass.services.has_service(channel_domain, "channel_msg_list"):
+            return []
+        request_data: dict[str, Any] = {"target": target, "limit": limit}
+        if from_me is not None:
+            request_data["from_me"] = from_me
+        try:
+            response = await self._hass.services.async_call(
+                channel_domain,
+                "channel_msg_list",
+                request_data,
+                blocking=True,
+                return_response=True,
+            )
+        except HomeAssistantError as err:
+            _LOGGER.debug(
+                "Unable to fetch recent messages via %s.channel_msg_list: %s",
+                channel_domain,
+                err,
+            )
+            return []
+
+        if not isinstance(response, Mapping):
+            return []
+        messages = response.get("messages")
+        if isinstance(messages, list):
+            return [m for m in messages if isinstance(m, dict)]
+        return []
 
     async def _notify_delete_message(self, *, message_id: str, delete_for_everyone: bool) -> None:
         """Delete message via notify service route."""
