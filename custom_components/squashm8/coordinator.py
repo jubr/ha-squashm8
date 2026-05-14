@@ -223,7 +223,7 @@ class SquashM8Client:
                 if sent_or_edited:
                     if operation == "edit":
                         edited_messages += 1
-                    else:
+                    elif operation == "send":
                         sent_messages += 1
                 if msg_id and day_key:
                     prev_id = self._state_store.get_message_id(target=target, day_key=day_key)
@@ -254,6 +254,7 @@ class SquashM8Client:
                             day_key=day_key,
                             message_id=msg_id,
                             timestamp=now_ts,
+                            body=str(sentence),
                         )
                         _LOGGER.debug(
                             "Stored state message_id for target=%s day_key=%s msg_id=%s",
@@ -261,6 +262,18 @@ class SquashM8Client:
                             day_key,
                             msg_id,
                         )
+                elif day_key and operation == "send" and sent_or_edited and not dry_run:
+                    self._state_store.set_message_observation(
+                        target=target,
+                        day_key=day_key,
+                        timestamp=now_ts,
+                        body=str(sentence),
+                    )
+                    _LOGGER.debug(
+                        "Stored state observation without message_id for target=%s day_key=%s",
+                        target,
+                        day_key,
+                    )
 
         _LOGGER.info(
             (
@@ -296,9 +309,12 @@ class SquashM8Client:
         """Edit an existing recent same-day bot message or send new."""
         day_key = self._day_key(item)
         edit_candidate_msg_id: str | None = None
+        state_ts: int | None = None
+        state_body: str | None = None
         if day_key:
             state_msg_id = self._state_store.get_message_id(target=target, day_key=day_key)
             state_ts = self._state_store.get_timestamp(target=target, day_key=day_key)
+            state_body = self._state_store.get_body(target=target, day_key=day_key)
             if (
                 state_msg_id
                 and state_ts is not None
@@ -327,6 +343,25 @@ class SquashM8Client:
                         day_key,
                         edit_candidate_msg_id,
                     )
+
+            # Last-resort fallback: if we recently sent the same body for this day but
+            # did not get a provider message id, avoid sending duplicates.
+            if (
+                not edit_candidate_msg_id
+                and state_ts is not None
+                and now_ts - state_ts <= self._edit_window_minutes * 60
+                and isinstance(state_body, str)
+                and state_body == sentence.strip()
+            ):
+                _LOGGER.debug(
+                    (
+                        "Skipping duplicate send (idless recent state match) "
+                        "target=%s day_key=%s"
+                    ),
+                    target,
+                    day_key,
+                )
+                return False, None, "skip"
 
         if edit_candidate_msg_id:
             try:
