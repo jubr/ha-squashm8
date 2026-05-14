@@ -17,7 +17,7 @@ run:
         boolean:
     delta:
       name: Delta only
-      description: Only send messages when endpoint reports updates.
+      description: When enabled, only process entries whose upstream "update" field indicates change; when disabled, process all entries.
       required: false
       default: true
       selector:
