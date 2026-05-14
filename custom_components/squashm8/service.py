@@ -48,21 +48,39 @@ async def async_register_services(hass: HomeAssistant) -> None:
         data: Mapping[str, Any] = entry.data
 
         client = SquashM8Client.from_config_entry(hass, data=data, options=options)
-        peek = call.data.get(ATTR_PEEK, options.get(CONF_DEFAULT_PEEK, False))
-        delta = call.data.get(ATTR_DELTA, options.get(CONF_DEFAULT_DELTA, True))
+        default_peek = bool(options.get(CONF_DEFAULT_PEEK, False))
+        default_delta = bool(options.get(CONF_DEFAULT_DELTA, True))
+        peek = call.data.get(ATTR_PEEK, default_peek)
+        delta = call.data.get(ATTR_DELTA, default_delta)
         override_target = call.data.get(
             ATTR_OVERRIDE_TARGET, options.get(CONF_DEFAULT_OVERRIDE_TARGET)
         )
         ts = call.data.get(ATTR_TS)
         dry_run = bool(call.data.get(ATTR_DRY_RUN, False))
+        peek_from_service_data = ATTR_PEEK in call.data
+        delta_from_service_data = ATTR_DELTA in call.data
 
         LOGGER.info(
-            "Running SquashM8 service: peek=%s delta=%s override_target=%s entry_id=%s dry_run=%s",
+            (
+                "Running SquashM8 service: resolved_peek=%s "
+                "(source=%s, default_peek=%s), resolved_delta=%s "
+                "(source=%s, default_delta=%s), override_target=%s, "
+                "entry_id=%s, dry_run=%s"
+            ),
             peek,
+            "service_call" if peek_from_service_data else "entry_option_default",
+            default_peek,
             delta,
+            "service_call" if delta_from_service_data else "entry_option_default",
+            default_delta,
             override_target,
             entry.entry_id,
             dry_run,
+        )
+        LOGGER.debug(
+            "SquashM8 service call payload keys=%s raw_data=%s",
+            sorted(call.data.keys()),
+            dict(call.data),
         )
         result = await client.run(
             peek=bool(peek),
@@ -70,6 +88,21 @@ async def async_register_services(hass: HomeAssistant) -> None:
             override_target=str(override_target) if override_target else None,
             ts=int(ts) if ts is not None else None,
             dry_run=dry_run,
+        )
+        LOGGER.info(
+            (
+                "SquashM8 run completed: status=%s entry_id=%s endpoint_url=%s "
+                "num_updates=%s sent=%s edited=%s deleted=%s skipped=%s dry_run=%s"
+            ),
+            result.status,
+            entry.entry_id,
+            result.endpoint_url,
+            result.num_updates,
+            result.sent_messages,
+            result.edited_messages,
+            result.deleted_messages,
+            result.skipped_reasons,
+            dry_run,
         )
         return {
             "status": result.status,
