@@ -7,7 +7,7 @@ Custom integration that replaces the current `automation + script + rest_command
 It keeps compatibility with your current behavior:
 
 - `peek` (maps to SquashM8 endpoint `peek` query arg)
-- `delta` (skip outbound messages when `numUpdates == 0`)
+- `delta` (when true: only process entries marked changed by upstream `update`; when false: process all entries)
 - `override_target` (force all messages to one logical group)
 - same WhatsApp notify flow (`notify.whatsappur`)
 - same default group mapping currently used in your automations
@@ -28,6 +28,7 @@ Your current hourly chain is:
 4. parses payload groups (`Maandag squash`, `Squashmatties`, etc.)
 5. sends each `sentence` to `notify.whatsappur` target mapping
 6. if `numUpdates == 0` and delta-mode is active, no outbound posts
+7. when `delta: true`, only items with upstream `update` set are processed; when `delta: false`, all items are processed
 
 This integration preserves that behavior directly in Python.
 
@@ -53,7 +54,7 @@ Optional fields:
 
 - `entry_id` (string): choose specific config entry (if multiple)
 - `peek` (bool)
-- `delta` (bool)
+- `delta` (bool): true = changed entries only, false = all entries
 - `override_target` (string)
 - `ts` (int): optional epoch override (for replay/testing)
 - `dry_run` (bool): simulate send/edit/delete without mutating WhatsApp messages
