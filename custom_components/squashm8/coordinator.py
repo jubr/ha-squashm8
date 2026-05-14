@@ -114,7 +114,22 @@ class SquashM8Client:
                 body: dict[str, Any] = await response.json(content_type=None)
 
         num_updates = _extract_num_updates(body)
+        payload_summary = _summarize_payload(body)
+        _LOGGER.info(
+            (
+                "SquashM8 endpoint response: endpoint=%s peek=%s delta=%s "
+                "num_updates=%s summary=%s"
+            ),
+            endpoint_url,
+            peek,
+            delta,
+            num_updates,
+            payload_summary,
+        )
         if delta and num_updates == 0:
+            _LOGGER.info(
+                "Delta mode active and num_updates=0; skipping outbound notify fanout"
+            )
             return SquashM8Result(
                 status="ok",
                 num_updates=0,
@@ -134,23 +149,59 @@ class SquashM8Client:
                 continue
             if not isinstance(items, list):
                 skipped.append(f"{group_name}:not_a_list")
+                _LOGGER.debug(
+                    "Skipping group '%s': expected list but got %s",
+                    group_name,
+                    type(items).__name__,
+                )
                 continue
 
             target = override_target or self._group_targets.get(group_name) or group_name
             if not target:
                 skipped.append(f"{group_name}:empty_target")
+                _LOGGER.debug("Skipping group '%s': empty resolved target", group_name)
                 continue
+            _LOGGER.debug(
+                (
+                    "Processing group '%s': items=%s resolved_target='%s' "
+                    "override_target='%s'"
+                ),
+                group_name,
+                len(items),
+                target,
+                override_target,
+            )
 
-            for item in items:
+            for item_index, item in enumerate(items, start=1):
                 if not isinstance(item, dict):
                     skipped.append(f"{group_name}:item_not_object")
+                    _LOGGER.debug(
+                        "Skipping %s item #%s: expected object but got %s",
+                        group_name,
+                        item_index,
+                        type(item).__name__,
+                    )
                     continue
 
                 sentence = item.get("sentence")
                 if not sentence:
                     skipped.append(f"{group_name}:empty_sentence")
+                    _LOGGER.debug(
+                        "Skipping %s item #%s: empty sentence. keys=%s",
+                        group_name,
+                        item_index,
+                        sorted(item.keys()),
+                    )
                     continue
 
+                day_key = self._day_key(item)
+                _LOGGER.debug(
+                    "Upserting %s item #%s day_key=%s sentence_preview=%r",
+                    group_name,
+                    item_index,
+                    day_key,
+                    _preview_sentence(str(sentence)),
+                )
                 sent_or_edited, msg_id, operation = await self._upsert_message_for_day(
                     target=target,
                     sentence=str(sentence),
@@ -158,12 +209,22 @@ class SquashM8Client:
                     now_ts=now_ts,
                     dry_run=dry_run,
                 )
+                _LOGGER.debug(
+                    (
+                        "Upsert result for %s item #%s: operation=%s "
+                        "sent_or_edited=%s msg_id=%s"
+                    ),
+                    group_name,
+                    item_index,
+                    operation,
+                    sent_or_edited,
+                    msg_id,
+                )
                 if sent_or_edited:
                     if operation == "edit":
                         edited_messages += 1
                     else:
                         sent_messages += 1
-                day_key = self._day_key(item)
                 if msg_id and day_key:
                     prev_id = self._state_store.get_message_id(target=target, day_key=day_key)
                     if self._delete_older_messages and prev_id and prev_id != msg_id:
@@ -181,6 +242,12 @@ class SquashM8Client:
                                     delete_for_everyone=self._delete_for_everyone,
                                 )
                             deleted_messages += 1
+                            _LOGGER.debug(
+                                "Deleted stale message for target=%s day_key=%s msg_id=%s",
+                                target,
+                                day_key,
+                                prev_id,
+                            )
                     if not dry_run:
                         self._state_store.set_message_id(
                             target=target,
@@ -188,7 +255,24 @@ class SquashM8Client:
                             message_id=msg_id,
                             timestamp=now_ts,
                         )
+                        _LOGGER.debug(
+                            "Stored state message_id for target=%s day_key=%s msg_id=%s",
+                            target,
+                            day_key,
+                            msg_id,
+                        )
 
+        _LOGGER.info(
+            (
+                "SquashM8 notify fanout completed: sent=%s edited=%s deleted=%s "
+                "num_updates=%s skipped=%s"
+            ),
+            sent_messages,
+            edited_messages,
+            deleted_messages,
+            num_updates,
+            skipped,
+        )
         return SquashM8Result(
             status="ok",
             sent_messages=sent_messages,
@@ -220,11 +304,26 @@ class SquashM8Client:
                 and now_ts - state_ts <= self._edit_window_minutes * 60
             ):
                 try:
+                    _LOGGER.debug(
+                        (
+                            "Attempting message edit using state store: "
+                            "target=%s day_key=%s msg_id=%s"
+                        ),
+                        target,
+                        day_key,
+                        state_msg_id,
+                    )
                     if not dry_run:
                         await self._notify_edit_message(
                             message_id=state_msg_id,
                             message=sentence,
                         )
+                    _LOGGER.debug(
+                        "Edit succeeded for target=%s day_key=%s msg_id=%s",
+                        target,
+                        day_key,
+                        state_msg_id,
+                    )
                     return True, state_msg_id, "edit"
                 except Exception as err:  # noqa: BLE001
                     _LOGGER.debug(
@@ -236,8 +335,12 @@ class SquashM8Client:
                     )
 
         if dry_run:
+            _LOGGER.debug("Dry run active; skipping send for target=%s", target)
             return True, None, "send"
         message_id = await self._notify_send_message(target=target, message=sentence)
+        _LOGGER.debug(
+            "Send attempted for target=%s returned message_id=%s", target, message_id
+        )
         return bool(message_id), message_id, "send"
 
     async def _can_delete_prev_safely(
@@ -324,6 +427,13 @@ class SquashM8Client:
             # message without requesting a response and continue gracefully.
             if "return_response=True" not in str(err):
                 raise
+            _LOGGER.debug(
+                (
+                    "Notify service %s does not support return responses; "
+                    "sending without response payload"
+                ),
+                self._notify_service,
+            )
             await self._hass.services.async_call(
                 domain,
                 service,
@@ -331,7 +441,14 @@ class SquashM8Client:
                 blocking=True,
             )
             return None
-        return _extract_message_id_from_response(response)
+        message_id = _extract_message_id_from_response(response)
+        _LOGGER.debug(
+            "Notify response for target=%s extracted message_id=%s raw_response=%s",
+            target,
+            message_id,
+            response,
+        )
+        return message_id
 
     async def _notify_edit_message(self, *, message_id: str, message: str) -> None:
         """Edit previously sent message via notify service route."""
@@ -473,6 +590,42 @@ def _extract_num_updates(body: dict[str, Any]) -> int | None:
         if isinstance(num_updates, int):
             return num_updates
     return None
+
+
+def _summarize_payload(body: Mapping[str, Any]) -> dict[str, Any]:
+    """Build a compact response summary for debug logging."""
+    summary: dict[str, Any] = {"groups": {}}
+    for group_name, items in body.items():
+        if group_name == "SquashM8":
+            continue
+        if not isinstance(items, list):
+            summary["groups"][group_name] = {
+                "type": type(items).__name__,
+            }
+            continue
+        sentence_count = 0
+        update_count = 0
+        for item in items:
+            if not isinstance(item, Mapping):
+                continue
+            if item.get("sentence"):
+                sentence_count += 1
+            if item.get("update"):
+                update_count += 1
+        summary["groups"][group_name] = {
+            "items": len(items),
+            "with_sentence": sentence_count,
+            "with_update": update_count,
+        }
+    return summary
+
+
+def _preview_sentence(value: str, max_len: int = 120) -> str:
+    """Return single-line preview of a message body for logs."""
+    normalized = " ".join(value.split())
+    if len(normalized) <= max_len:
+        return normalized
+    return normalized[: max_len - 3] + "..."
 
 
 def _extract_message_id_from_response(response: Any) -> str | None:
