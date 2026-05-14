@@ -864,7 +864,12 @@ def _item_marked_updated(item: Mapping[str, Any]) -> bool:
         return raw_update != 0
     if isinstance(raw_update, str):
         normalized = raw_update.strip().lower()
-        return normalized in {"1", "true", "yes", "y", "on"}
+        if not normalized:
+            return False
+        if normalized in {"0", "false", "no", "n", "off"}:
+            return False
+        # Server-side delta currently uses non-empty strings to indicate updates.
+        return True
     return False
 
 
