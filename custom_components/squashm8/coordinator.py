@@ -565,7 +565,7 @@ class SquashM8Client:
                 blocking=True,
                 return_response=True,
             )
-        except HomeAssistantError as err:
+        except Exception as err:  # noqa: BLE001
             _LOGGER.debug(
                 "Unable to fetch recent messages via %s.channel_msg_list: %s",
                 channel_domain,
