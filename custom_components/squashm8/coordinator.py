@@ -195,6 +195,21 @@ class SquashM8Client:
                     continue
 
                 day_key = self._day_key(item)
+                if delta and not _item_marked_updated(item):
+                    skip_day_key = day_key or "unknown_day"
+                    skipped.append(f"{group_name}:{skip_day_key}:delta_no_update")
+                    _LOGGER.debug(
+                        (
+                            "Delta skip for %s item #%s: update flag is false "
+                            "day_key=%s target=%s raw_update=%r"
+                        ),
+                        group_name,
+                        item_index,
+                        skip_day_key,
+                        target,
+                        item.get("update"),
+                    )
+                    continue
                 _LOGGER.debug(
                     "Upserting %s item #%s day_key=%s sentence_preview=%r",
                     group_name,
@@ -837,6 +852,19 @@ def _message_matches_item_day(message_body: str, item: Mapping[str, Any]) -> boo
     ):
         return True
 
+    return False
+
+
+def _item_marked_updated(item: Mapping[str, Any]) -> bool:
+    """Interpret item.update from SquashM8 payload using tolerant boolean parsing."""
+    raw_update = item.get("update")
+    if isinstance(raw_update, bool):
+        return raw_update
+    if isinstance(raw_update, int):
+        return raw_update != 0
+    if isinstance(raw_update, str):
+        normalized = raw_update.strip().lower()
+        return normalized in {"1", "true", "yes", "y", "on"}
     return False
 
 
