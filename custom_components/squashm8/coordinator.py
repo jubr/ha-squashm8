@@ -317,7 +317,7 @@ class SquashM8Client:
             if not edit_candidate_msg_id:
                 edit_candidate_msg_id = await self._find_edit_candidate_from_recent_messages(
                     target=target,
-                    day_key=day_key,
+                    item=item,
                     now_ts=now_ts,
                 )
                 if edit_candidate_msg_id:
@@ -492,7 +492,7 @@ class SquashM8Client:
         self,
         *,
         target: str,
-        day_key: str,
+        item: Mapping[str, Any],
         now_ts: int,
     ) -> str | None:
         """Find a recent same-day bot message id by reading channel history."""
@@ -501,15 +501,21 @@ class SquashM8Client:
             limit=50,
             from_me=True,
         )
-        candidate = self._find_edit_candidate(
-            recent_messages=recent_messages,
-            day_key=day_key,
-            now_ts=now_ts,
-        )
-        if not candidate:
-            return None
-        msg_id = str(candidate.get("id") or "")
-        return msg_id or None
+        for message in reversed(recent_messages):
+            if not _is_from_me(message):
+                continue
+            body = str(message.get("body") or "")
+            if not _message_matches_item_day(body, item):
+                continue
+            msg_ts = _message_timestamp(message)
+            if msg_ts is None:
+                continue
+            if now_ts - msg_ts > self._edit_window_minutes * 60:
+                continue
+            msg_id = str(message.get("id") or "")
+            if msg_id:
+                return msg_id
+        return None
 
     async def _find_recent_message_id_for_body(
         self,
@@ -776,5 +782,26 @@ def _message_timestamp(message: Mapping[str, Any]) -> int | None:
     except (TypeError, ValueError):
         return None
     return ts if ts > 0 else None
+
+
+def _message_matches_item_day(message_body: str, item: Mapping[str, Any]) -> bool:
+    """Best-effort day matching between endpoint payload item and sent message body."""
+    normalized_body = message_body.strip()
+    if not normalized_body:
+        return False
+
+    day = item.get("day")
+    if isinstance(day, str) and day.strip() and day.strip() in normalized_body:
+        return True
+
+    day_col_key = item.get("dayColKey")
+    if (
+        isinstance(day_col_key, str)
+        and day_col_key.strip()
+        and day_col_key.strip() in normalized_body
+    ):
+        return True
+
+    return False
 
 
