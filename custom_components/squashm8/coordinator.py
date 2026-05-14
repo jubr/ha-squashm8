@@ -195,25 +195,19 @@ class SquashM8Client:
                     continue
 
                 day_key = self._day_key(item)
-                if (
-                    delta
-                    and day_key
-                    and not self._has_day_changed(
-                        target=target,
-                        day_key=day_key,
-                        new_body=str(sentence),
-                    )
-                ):
-                    skipped.append(f"{group_name}:{day_key}:unchanged_delta_skip")
+                if delta and not _item_marked_updated(item):
+                    skip_day_key = day_key or "unknown_day"
+                    skipped.append(f"{group_name}:{skip_day_key}:delta_no_update")
                     _LOGGER.debug(
                         (
-                            "Delta skip for %s item #%s: unchanged day_key=%s "
-                            "target=%s"
+                            "Delta skip for %s item #%s: update flag is false "
+                            "day_key=%s target=%s raw_update=%r"
                         ),
                         group_name,
                         item_index,
-                        day_key,
+                        skip_day_key,
                         target,
+                        item.get("update"),
                     )
                     continue
                 _LOGGER.debug(
@@ -658,13 +652,6 @@ class SquashM8Client:
             blocking=True,
         )
 
-    def _has_day_changed(self, *, target: str, day_key: str, new_body: str) -> bool:
-        """Return True when per-day payload body changed since last successful observation."""
-        previous_body = self._state_store.get_body(target=target, day_key=day_key)
-        if not previous_body:
-            return True
-        return previous_body.strip() != new_body.strip()
-
     def _find_edit_candidate(
         self,
         *,
@@ -865,6 +852,19 @@ def _message_matches_item_day(message_body: str, item: Mapping[str, Any]) -> boo
     ):
         return True
 
+    return False
+
+
+def _item_marked_updated(item: Mapping[str, Any]) -> bool:
+    """Interpret item.update from SquashM8 payload using tolerant boolean parsing."""
+    raw_update = item.get("update")
+    if isinstance(raw_update, bool):
+        return raw_update
+    if isinstance(raw_update, int):
+        return raw_update != 0
+    if isinstance(raw_update, str):
+        normalized = raw_update.strip().lower()
+        return normalized in {"1", "true", "yes", "y", "on"}
     return False
 
 
