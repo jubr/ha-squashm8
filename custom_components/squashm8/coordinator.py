@@ -195,12 +195,13 @@ class SquashM8Client:
                     continue
 
                 day_key = self._day_key(item)
-                if delta and not _item_marked_updated(item):
+                update_marker = _extract_update_marker(item)
+                if delta and not update_marker:
                     skip_day_key = day_key or "unknown_day"
                     skipped.append(f"{group_name}:{skip_day_key}:delta_no_update")
                     _LOGGER.debug(
                         (
-                            "Delta skip for %s item #%s: update flag is false "
+                            "Delta skip for %s item #%s: update marker empty "
                             "day_key=%s target=%s raw_update=%r"
                         ),
                         group_name,
@@ -208,6 +209,25 @@ class SquashM8Client:
                         skip_day_key,
                         target,
                         item.get("update"),
+                    )
+                    continue
+                if (
+                    delta
+                    and day_key
+                    and update_marker
+                    and self._state_store.get_update_marker(target=target, day_key=day_key)
+                    == update_marker
+                ):
+                    skipped.append(f"{group_name}:{day_key}:delta_unchanged_update_marker")
+                    _LOGGER.debug(
+                        (
+                            "Delta skip for %s item #%s: unchanged update marker "
+                            "day_key=%s target=%s"
+                        ),
+                        group_name,
+                        item_index,
+                        day_key,
+                        target,
                     )
                     continue
                 _LOGGER.debug(
@@ -240,6 +260,12 @@ class SquashM8Client:
                         edited_messages += 1
                     elif operation == "send":
                         sent_messages += 1
+                if day_key and update_marker and not dry_run:
+                    self._state_store.set_update_marker(
+                        target=target,
+                        day_key=day_key,
+                        update_marker=update_marker,
+                    )
                 if msg_id and day_key:
                     prev_id = self._state_store.get_message_id(target=target, day_key=day_key)
                     if self._delete_older_messages and prev_id and prev_id != msg_id:
@@ -855,8 +881,35 @@ def _message_matches_item_day(message_body: str, item: Mapping[str, Any]) -> boo
     return False
 
 
+def _extract_update_marker(item: Mapping[str, Any]) -> str | None:
+    """Extract a stable update marker per day entry from upstream payload."""
+    raw_update = item.get("update")
+    if isinstance(raw_update, str):
+        normalized = raw_update.strip()
+        return normalized if normalized else None
+
+    # Some payload shapes expose update as boolean/integer signal only.
+    # Fall back to sentence text as marker so changed content still diffs.
+    if isinstance(raw_update, bool) or isinstance(raw_update, int):
+        if not bool(raw_update):
+            return None
+        sentence = item.get("sentence")
+        if isinstance(sentence, str):
+            normalized_sentence = sentence.strip()
+            if normalized_sentence:
+                return normalized_sentence
+        return str(raw_update)
+
+    if raw_update is None:
+        return None
+    normalized_fallback = str(raw_update).strip()
+    return normalized_fallback if normalized_fallback else None
+
+
 def _item_marked_updated(item: Mapping[str, Any]) -> bool:
-    """Interpret item.update from SquashM8 payload using tolerant boolean parsing."""
+    """Backward-compatible helper to indicate whether an item has update signal."""
+    if _extract_update_marker(item):
+        return True
     raw_update = item.get("update")
     if isinstance(raw_update, bool):
         return raw_update
